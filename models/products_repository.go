@@ -1,7 +1,13 @@
 package models
 
 import (
+	"errors"
+
 	"gorm.io/gorm"
+)
+
+var (
+	ProductNotFoundError = errors.New("Product not found")
 )
 
 type PaginationParams struct {
@@ -58,6 +64,21 @@ func (r *ProductsRepository) GetAllProducts(filterParams FilterParams, paginatio
 		Total:      total,
 		TotalPages: totalPages,
 	}, nil
+}
+
+func (r *ProductsRepository) GetProductByCode(code string) (Product, error) {
+	var product Product
+	err := r.db.Preload("Variants").Preload("Category").
+		Where("code = ?", code).
+		First(&product).Error
+
+	if err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return Product{}, ProductNotFoundError
+		}
+		return Product{}, err
+	}
+	return product, err
 }
 
 func addFilter(filterParams FilterParams, db *gorm.DB) *gorm.DB {
