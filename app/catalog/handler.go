@@ -6,6 +6,7 @@ import (
 	"log"
 	"net/http"
 	"strconv"
+	"strings"
 
 	"github.com/mytheresa/go-hiring-challenge/models"
 )
@@ -38,7 +39,7 @@ type CatalogHandler struct {
 
 // Repository defines the contract for accessing product data.
 type Repository interface {
-	GetAllProducts(params models.PaginationParams) (models.PaginatedResult, error)
+	GetAllProducts(filterParams models.FilterParams, paginationParams models.PaginationParams) (models.PaginatedResult, error)
 }
 
 // NewCatalogHandler creates a new CatalogHandler with the given repository.
@@ -52,13 +53,18 @@ func NewCatalogHandler(r Repository) *CatalogHandler {
 func (h *CatalogHandler) GetCatalog(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 
-	params, err := getPaginationParams(r)
+	paginationParams, err := getPaginationParams(r)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	filterParams, err := getFilterParams(r)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
 
-	result, err := h.repo.GetAllProducts(params)
+	result, err := h.repo.GetAllProducts(filterParams, paginationParams)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
@@ -130,4 +136,25 @@ func validatePaginationParams(params models.PaginationParams) error {
 	}
 
 	return nil
+}
+
+func getFilterParams(r *http.Request) (models.FilterParams, error) {
+	query := r.URL.Query()
+
+	priceLessThanStr := query.Get("price_less_than")
+	if priceLessThanStr == "" {
+		priceLessThanStr = "0"
+	}
+	priceLessThan, err := strconv.ParseFloat(priceLessThanStr, 64)
+	if err != nil {
+		log.Printf("Error parsing price_less_than: %v", err)
+		return models.FilterParams{}, fmt.Errorf("Invalid price_less_than param")
+	}
+
+	categoryCodeStr := query.Get("category_code")
+
+	return models.FilterParams{
+		CategoryCode:  strings.TrimSpace(categoryCodeStr),
+		PriceLessThan: priceLessThan,
+	}, nil
 }
