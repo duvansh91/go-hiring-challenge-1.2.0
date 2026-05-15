@@ -9,6 +9,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/mytheresa/go-hiring-challenge/app/dto"
 	"github.com/mytheresa/go-hiring-challenge/models"
 )
 
@@ -21,44 +22,24 @@ const (
 
 // Response represents the catalog API response containing products.
 type Response struct {
-	Products      []ProductDTO `json:"products"`
-	TotalProducts int64        `json:"total_products"`
-	TotalPages    int          `json:"total_pages"`
-}
-
-// ProductDTO represents a single product in the catalog response.
-type ProductDTO struct {
-	Code     string       `json:"code"`
-	Price    float64      `json:"price"`
-	Category CategoryDTO  `json:"category"`
-	Variants []VariantDTO `json:"variants,omitempty"`
-}
-
-type VariantDTO struct {
-	ProductID uint    `json:"product_id"`
-	Name      string  `json:"name"`
-	SKU       string  `json:"sku"`
-	Price     float64 `json:"price"`
-}
-
-type CategoryDTO struct {
-	Code string `json:"code"`
-	Name string `json:"name"`
+	Products      []dto.Product `json:"products"`
+	TotalProducts int64         `json:"total_products"`
+	TotalPages    int           `json:"total_pages"`
 }
 
 // CatalogHandler handles HTTP requests for the product catalog.
 type CatalogHandler struct {
-	repo Repository
+	repo ProductsRepository
 }
 
-// Repository defines the contract for accessing product data.
-type Repository interface {
+// ProductsRepository defines the contract for accessing product data.
+type ProductsRepository interface {
 	GetAllProducts(filterParams models.FilterParams, paginationParams models.PaginationParams) (models.PaginatedResult, error)
 	GetProductByCode(code string) (models.Product, error)
 }
 
 // NewCatalogHandler creates a new CatalogHandler with the given repository.
-func NewCatalogHandler(r Repository) *CatalogHandler {
+func NewCatalogHandler(r ProductsRepository) *CatalogHandler {
 	return &CatalogHandler{
 		repo: r,
 	}
@@ -73,6 +54,7 @@ func (h *CatalogHandler) GetCatalog(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
+
 	filterParams, err := getFilterParams(r)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
@@ -81,39 +63,33 @@ func (h *CatalogHandler) GetCatalog(w http.ResponseWriter, r *http.Request) {
 
 	result, err := h.repo.GetAllProducts(filterParams, paginationParams)
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		slog.Error("error getting products", "error", err)
+		http.Error(w, "Error getting products", http.StatusInternalServerError)
 		return
 	}
 
-	productsDTO := make([]ProductDTO, len(result.Data))
+	productsDTO := make([]dto.Product, len(result.Data))
 	for i, p := range result.Data {
-		productsDTO[i] = ProductDTO{
-			Code:  p.Code,
-			Price: p.Price.InexactFloat64(),
-			Category: CategoryDTO{
-				Code: p.Category.Code,
-				Name: p.Category.Name,
-			},
-		}
+		productsDTO[i] = dto.MapProductToDTO(p, false)
 	}
 
-	response := Response{
+	err = json.NewEncoder(w).Encode(Response{
 		Products:      productsDTO,
 		TotalProducts: result.Total,
 		TotalPages:    result.TotalPages,
-	}
-	err = json.NewEncoder(w).Encode(response)
+	})
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		slog.Error("error parsing products response", "error", err)
+		http.Error(w, "error parsing products response", http.StatusInternalServerError)
 		return
 	}
 }
 
-func (h *CatalogHandler) GetProduct(w http.ResponseWriter, r *http.Request) {
+// GetProductDetail retrieves a single product and returns it as JSON.
+func (h *CatalogHandler) GetProductDetail(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 
 	productCode := r.PathValue("code")
-
 	product, err := h.repo.GetProductByCode(productCode)
 	if err != nil {
 		if err == models.ProductNotFoundError {
@@ -121,15 +97,16 @@ func (h *CatalogHandler) GetProduct(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		slog.Error("error getting product with code", "code", productCode, "error", err)
-		http.Error(w, "error getting product", http.StatusInternalServerError)
+		http.Error(w, "Error getting product", http.StatusInternalServerError)
 		return
 	}
 
-	productDTO := mapProductToDTO(product)
+	productDTO := dto.MapProductToDTO(product, true)
 
 	err = json.NewEncoder(w).Encode(productDTO)
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		slog.Error("error parsing product response", "error", err)
+		http.Error(w, "error parsing product response", http.StatusInternalServerError)
 		return
 	}
 }
@@ -200,30 +177,4 @@ func getFilterParams(r *http.Request) (models.FilterParams, error) {
 		CategoryCode:  strings.TrimSpace(categoryCodeStr),
 		PriceLessThan: priceLessThan,
 	}, nil
-}
-
-func mapProductToDTO(product models.Product) ProductDTO {
-	variantsDTO := make([]VariantDTO, len(product.Variants))
-	for i, v := range product.Variants {
-		variantPrice := v.Price
-		if v.Price.IsZero() {
-			variantPrice = product.Price
-		}
-		variantsDTO[i] = VariantDTO{
-			ProductID: v.ProductID,
-			Name:      v.Name,
-			SKU:       v.SKU,
-			Price:     variantPrice.InexactFloat64(),
-		}
-	}
-
-	return ProductDTO{
-		Code:  product.Code,
-		Price: product.Price.InexactFloat64(),
-		Category: CategoryDTO{
-			Code: product.Category.Code,
-			Name: product.Category.Name,
-		},
-		Variants: variantsDTO,
-	}
 }

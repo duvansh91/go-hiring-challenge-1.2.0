@@ -37,19 +37,20 @@ func NewProductsRepository(db *gorm.DB) *ProductsRepository {
 }
 
 func (r *ProductsRepository) GetAllProducts(filterParams FilterParams, paginationParams PaginationParams) (PaginatedResult, error) {
+	// Do both queries in go routines to improve performance
 	var total int64
 	countQuery := r.db.Model(&Product{})
 	countQuery = addFilter(filterParams, countQuery)
-	if err := countQuery.Count(&total).Error; err != nil {
+	err := countQuery.Count(&total).Error
+	if err != nil {
 		return PaginatedResult{}, err
 	}
 
 	var products []Product
-	getQuery := r.db.Preload("Variants").Preload("Category").
-		Order("id ASC").
+	getQuery := r.db.Preload("Variants").Preload("Category").Order("id ASC").
 		Offset(paginationParams.Offset).Limit(paginationParams.Limit)
 	getQuery = addFilter(filterParams, getQuery)
-	err := getQuery.Find(&products).Error
+	err = getQuery.Find(&products).Error
 	if err != nil {
 		return PaginatedResult{}, err
 	}
@@ -69,9 +70,7 @@ func (r *ProductsRepository) GetAllProducts(filterParams FilterParams, paginatio
 func (r *ProductsRepository) GetProductByCode(code string) (Product, error) {
 	var product Product
 	err := r.db.Preload("Variants").Preload("Category").
-		Where("code = ?", code).
-		First(&product).Error
-
+		Where("code = ?", code).First(&product).Error
 	if err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return Product{}, ProductNotFoundError
