@@ -1,46 +1,35 @@
 package models
 
 import (
-	"errors"
-	"strings"
+	"context"
 
 	"gorm.io/gorm"
 )
 
-const (
-	duplicatedKeyErrorCode = "23505"
-)
-
-var (
-	CategoryAlreadyExistsError = errors.New("category already exists")
-)
-
+// CategoriesRepository provides methods to interact with the categories table in the db.
 type CategoriesRepository struct {
 	db *gorm.DB
 }
 
+// NewCategoriesRepository creates a new instance of CategoriesRepository with the given connection.
 func NewCategoriesRepository(db *gorm.DB) *CategoriesRepository {
 	return &CategoriesRepository{
 		db: db,
 	}
 }
 
-func (r *CategoriesRepository) GetAllCategories() ([]Category, error) {
+// GetAll retrieves all categories from the db.
+func (r *CategoriesRepository) GetAll(ctx context.Context) ([]Category, error) {
 	var categories []Category
-	err := r.db.Find(&categories).Error
+	err := r.db.WithContext(ctx).Find(&categories).Error
 	if err != nil {
 		return nil, err
 	}
+
 	return categories, nil
 }
 
-func (r *CategoriesRepository) CreateCategory(category *Category) error {
-	err := r.db.Create(category).Error
-	if err != nil {
-		if strings.Contains(err.Error(), duplicatedKeyErrorCode) {
-			return CategoryAlreadyExistsError
-		}
-		return err
-	}
-	return nil
+// Create stores a new category in the db.
+func (r *CategoriesRepository) Create(ctx context.Context, category *Category) error {
+	return r.db.WithContext(ctx).Create(category).Error
 }

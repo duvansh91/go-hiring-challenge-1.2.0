@@ -1,22 +1,25 @@
 package categories
 
 import (
+	"context"
 	"encoding/json"
 	"log/slog"
 	"net/http"
 
+	"github.com/mytheresa/go-hiring-challenge/app/api"
 	"github.com/mytheresa/go-hiring-challenge/app/dto"
 	"github.com/mytheresa/go-hiring-challenge/models"
 )
 
-// CategoriesHandler handles HTTP requests for the product Categories.
+// CategoriesHandler handles HTTP requests for the Categories.
 type CategoriesHandler struct {
 	repo CategoriesRepository
 }
 
+// CategoriesRepository defines the interface for the categories repository.
 type CategoriesRepository interface {
-	GetAllCategories() ([]models.Category, error)
-	CreateCategory(category *models.Category) error
+	GetAll(ctx context.Context) ([]models.Category, error)
+	Create(ctx context.Context, category *models.Category) error
 }
 
 // NewCategoriesHandler creates a new CatalogHandler with the given repository.
@@ -26,13 +29,15 @@ func NewCategoriesHandler(r CategoriesRepository) *CategoriesHandler {
 	}
 }
 
-func (h *CategoriesHandler) GetAllCategories(w http.ResponseWriter, r *http.Request) {
-	w.Header().Set("Content-Type", "application/json")
+// GetAll retrieves all categories and returns them as JSON.
+func (h *CategoriesHandler) GetAll(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
 
-	categories, err := h.repo.GetAllCategories()
+	categories, err := h.repo.GetAll(ctx)
 	if err != nil {
 		slog.Error("error getting categories", "error", err)
-		http.Error(w, "error getting categories", http.StatusInternalServerError)
+		api.ErrorResponse(w, http.StatusInternalServerError, "error getting categories")
+
 		return
 	}
 
@@ -44,17 +49,19 @@ func (h *CategoriesHandler) GetAllCategories(w http.ResponseWriter, r *http.Requ
 		})
 	}
 
-	json.NewEncoder(w).Encode(categoriesDTO)
+	api.OKResponse(w, categoriesDTO)
 }
 
-func (h *CategoriesHandler) CreateCategory(w http.ResponseWriter, r *http.Request) {
-	w.Header().Set("Content-Type", "application/json")
+// Create creates a new category and stores it in db.
+func (h *CategoriesHandler) Create(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
 
 	var categoryDTO dto.Category
 	err := json.NewDecoder(r.Body).Decode(&categoryDTO)
 	if err != nil {
 		slog.Error("invalid request body", "error", err)
-		http.Error(w, "invalid request body", http.StatusBadRequest)
+		api.ErrorResponse(w, http.StatusBadRequest, "invalid request body")
+
 		return
 	}
 
@@ -63,21 +70,15 @@ func (h *CategoriesHandler) CreateCategory(w http.ResponseWriter, r *http.Reques
 		Name: categoryDTO.Name,
 	}
 
-	err = h.repo.CreateCategory(&category)
+	err = h.repo.Create(ctx, &category)
 	if err != nil {
 		slog.Error("error creating category", "error", err)
+		api.ErrorResponse(w, http.StatusInternalServerError, "error creating category")
 
-		if err == models.CategoryAlreadyExistsError {
-			http.Error(w, "category already exists", http.StatusConflict)
-			return
-		}
-
-		http.Error(w, "error creating category", http.StatusInternalServerError)
 		return
 	}
 
-	w.WriteHeader(http.StatusCreated)
-	json.NewEncoder(w).Encode(dto.Category{
+	api.OKResponse(w, dto.Category{
 		Code: category.Code,
 		Name: category.Name,
 	})

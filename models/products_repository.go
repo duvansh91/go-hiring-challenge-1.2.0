@@ -1,8 +1,10 @@
 package models
 
 import (
+	"context"
 	"errors"
 
+	"golang.org/x/sync/errgroup"
 	"gorm.io/gorm"
 )
 
@@ -10,73 +12,97 @@ var (
 	ProductNotFoundError = errors.New("Product not found")
 )
 
+// PaginationParams represents the pagination parameters for querying products.
 type PaginationParams struct {
-	Offset int `json:"offset"` // number of records to skip
-	Limit  int `json:"limit"`  // number of records per page
+	Offset int `json:"offset"`
+	Limit  int `json:"limit"`
 }
 
+// PaginatedResult represents the paginated result of products.
 type PaginatedResult struct {
-	Data       []Product `json:"data"`
+	Products   []Product `json:"data"`
 	Total      int64     `json:"total"`
 	TotalPages int       `json:"total_pages"`
 }
 
+// FilterParams represents the filtering parameters for querying products.
 type FilterParams struct {
 	CategoryCode  string  `json:"category_code"`
 	PriceLessThan float64 `json:"price_less_than"`
 }
 
+// ProductsRepository provides methods to interact with the products in the db.
 type ProductsRepository struct {
 	db *gorm.DB
 }
 
+// NewProductsRepository creates a new instance of ProductsRepository with the given connection.
 func NewProductsRepository(db *gorm.DB) *ProductsRepository {
 	return &ProductsRepository{
 		db: db,
 	}
 }
 
-func (r *ProductsRepository) GetAllProducts(filterParams FilterParams, paginationParams PaginationParams) (PaginatedResult, error) {
-	// Do both queries in go routines to improve performance
+// GetAll retrieves all products from the db with optional filtering and pagination.
+func (r *ProductsRepository) GetAll(ctx context.Context, filter FilterParams, pagination PaginationParams) (PaginatedResult, error) {
+	g := new(errgroup.Group)
 	var total int64
-	countQuery := r.db.Model(&Product{})
-	countQuery = addFilter(filterParams, countQuery)
-	err := countQuery.Count(&total).Error
-	if err != nil {
-		return PaginatedResult{}, err
-	}
-
 	var products []Product
-	getQuery := r.db.Preload("Variants").Preload("Category").Order("id ASC").
-		Offset(paginationParams.Offset).Limit(paginationParams.Limit)
-	getQuery = addFilter(filterParams, getQuery)
-	err = getQuery.Find(&products).Error
-	if err != nil {
-		return PaginatedResult{}, err
-	}
 
-	totalPages := int(total) / paginationParams.Limit
-	if int(total)%paginationParams.Limit != 0 {
-		totalPages++
+	countQuery := r.db.WithContext(ctx).Model(&Product{})
+	countQuery = addFilter(filter, countQuery)
+	g.Go(func() error {
+		err := countQuery.Count(&total).Error
+		if err != nil {
+			return err
+		}
+		return nil
+	})
+
+	getQuery := r.db.
+		WithContext(ctx).
+		Preload("Variants").
+		Preload("Category").
+		Order("id ASC").
+		Offset(pagination.Offset).
+		Limit(pagination.Limit)
+	getQuery = addFilter(filter, getQuery)
+	g.Go(func() error {
+		err := getQuery.Find(&products).Error
+		if err != nil {
+			return err
+		}
+		return nil
+	})
+
+	if err := g.Wait(); err != nil {
+		return PaginatedResult{}, err
 	}
 
 	return PaginatedResult{
-		Data:       products,
+		Products:   products,
 		Total:      total,
-		TotalPages: totalPages,
+		TotalPages: getTotalPages(total, pagination.Limit),
 	}, nil
 }
 
-func (r *ProductsRepository) GetProductByCode(code string) (Product, error) {
+// GetByCode retrieves a product by its code from the db.
+func (r *ProductsRepository) GetByCode(ctx context.Context, code string) (Product, error) {
 	var product Product
-	err := r.db.Preload("Variants").Preload("Category").
-		Where("code = ?", code).First(&product).Error
+
+	err := r.db.
+		WithContext(ctx).
+		Preload("Variants").
+		Preload("Category").
+		Where("code = ?", code).
+		First(&product).Error
 	if err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return Product{}, ProductNotFoundError
 		}
 		return Product{}, err
 	}
+
 	return product, err
 }
 
@@ -91,4 +117,13 @@ func addFilter(filterParams FilterParams, db *gorm.DB) *gorm.DB {
 	}
 
 	return db
+}
+
+func getTotalPages(total int64, limit int) int {
+	totalPages := int(total) / limit
+	if int(total)%limit != 0 {
+		totalPages++
+	}
+
+	return totalPages
 }

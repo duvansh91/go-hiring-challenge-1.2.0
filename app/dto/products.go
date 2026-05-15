@@ -12,6 +12,14 @@ type Product struct {
 	Variants []Variant `json:"variants,omitempty"`
 }
 
+// Cataloge represents the catalog response containing products and pagination details.
+type Cataloge struct {
+	Products      []Product `json:"products"`
+	TotalProducts int64     `json:"total_products"`
+	TotalPages    int       `json:"total_pages"`
+}
+
+// MapProductToDTO converts a models.Product to a product dto.
 func MapProductToDTO(product models.Product, addVariants bool) Product {
 	productDto := Product{
 		Code:  product.Code,

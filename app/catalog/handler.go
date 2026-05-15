@@ -1,14 +1,14 @@
 package catalog
 
 import (
-	"encoding/json"
+	"context"
 	"fmt"
-	"log"
 	"log/slog"
 	"net/http"
 	"strconv"
 	"strings"
 
+	"github.com/mytheresa/go-hiring-challenge/app/api"
 	"github.com/mytheresa/go-hiring-challenge/app/dto"
 	"github.com/mytheresa/go-hiring-challenge/models"
 )
@@ -20,22 +20,15 @@ const (
 	minLimit       = 1
 )
 
-// Response represents the catalog API response containing products.
-type Response struct {
-	Products      []dto.Product `json:"products"`
-	TotalProducts int64         `json:"total_products"`
-	TotalPages    int           `json:"total_pages"`
-}
-
-// CatalogHandler handles HTTP requests for the product catalog.
+// CatalogHandler handles HTTP requests for the catalog.
 type CatalogHandler struct {
 	repo ProductsRepository
 }
 
 // ProductsRepository defines the contract for accessing product data.
 type ProductsRepository interface {
-	GetAllProducts(filterParams models.FilterParams, paginationParams models.PaginationParams) (models.PaginatedResult, error)
-	GetProductByCode(code string) (models.Product, error)
+	GetAll(ctx context.Context, filter models.FilterParams, pagination models.PaginationParams) (models.PaginatedResult, error)
+	GetByCode(ctx context.Context, code string) (models.Product, error)
 }
 
 // NewCatalogHandler creates a new CatalogHandler with the given repository.
@@ -45,92 +38,92 @@ func NewCatalogHandler(r ProductsRepository) *CatalogHandler {
 	}
 }
 
-// GetCatalog retrieves all products and returns them as JSON.
-func (h *CatalogHandler) GetCatalog(w http.ResponseWriter, r *http.Request) {
-	w.Header().Set("Content-Type", "application/json")
+// Get retrieves all products and returns them as JSON.
+func (h *CatalogHandler) Get(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
 
 	paginationParams, err := getPaginationParams(r)
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusBadRequest)
+		api.ErrorResponse(w, http.StatusBadRequest, err.Error())
+
 		return
 	}
 
 	filterParams, err := getFilterParams(r)
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusBadRequest)
+		api.ErrorResponse(w, http.StatusBadRequest, err.Error())
+
 		return
 	}
 
-	result, err := h.repo.GetAllProducts(filterParams, paginationParams)
+	result, err := h.repo.GetAll(ctx, filterParams, paginationParams)
 	if err != nil {
 		slog.Error("error getting products", "error", err)
-		http.Error(w, "Error getting products", http.StatusInternalServerError)
+		api.ErrorResponse(w, http.StatusInternalServerError, "Error getting products")
+
 		return
 	}
 
-	productsDTO := make([]dto.Product, len(result.Data))
-	for i, p := range result.Data {
+	productsDTO := make([]dto.Product, len(result.Products))
+	for i, p := range result.Products {
 		productsDTO[i] = dto.MapProductToDTO(p, false)
 	}
 
-	err = json.NewEncoder(w).Encode(Response{
+	api.OKResponse(w, dto.Cataloge{
 		Products:      productsDTO,
 		TotalProducts: result.Total,
 		TotalPages:    result.TotalPages,
 	})
-	if err != nil {
-		slog.Error("error parsing products response", "error", err)
-		http.Error(w, "error parsing products response", http.StatusInternalServerError)
-		return
-	}
 }
 
 // GetProductDetail retrieves a single product and returns it as JSON.
 func (h *CatalogHandler) GetProductDetail(w http.ResponseWriter, r *http.Request) {
-	w.Header().Set("Content-Type", "application/json")
+	ctx := r.Context()
 
-	productCode := r.PathValue("code")
-	product, err := h.repo.GetProductByCode(productCode)
+	code := strings.TrimSpace(r.PathValue("code"))
+	product, err := h.repo.GetByCode(ctx, code)
 	if err != nil {
 		if err == models.ProductNotFoundError {
-			http.Error(w, err.Error(), http.StatusNotFound)
+			api.ErrorResponse(w, http.StatusNotFound, "Product not found")
+
 			return
 		}
-		slog.Error("error getting product with code", "code", productCode, "error", err)
-		http.Error(w, "Error getting product", http.StatusInternalServerError)
+
+		slog.Error("error getting product with code", "code", code, "error", err)
+		api.ErrorResponse(w, http.StatusInternalServerError, "Error getting product")
+
 		return
 	}
 
 	productDTO := dto.MapProductToDTO(product, true)
 
-	err = json.NewEncoder(w).Encode(productDTO)
-	if err != nil {
-		slog.Error("error parsing product response", "error", err)
-		http.Error(w, "error parsing product response", http.StatusInternalServerError)
-		return
-	}
+	api.OKResponse(w, productDTO)
 }
 
 func getPaginationParams(r *http.Request) (models.PaginationParams, error) {
 	query := r.URL.Query()
 
-	offsetStr := query.Get("offset")
-	if offsetStr == "" {
-		offsetStr = offsetDefatult
+	offsetSTR := query.Get("offset")
+	if offsetSTR == "" {
+		offsetSTR = offsetDefatult
 	}
-	offset, err := strconv.Atoi(offsetStr)
+
+	offset, err := strconv.Atoi(offsetSTR)
 	if err != nil {
-		slog.Error("error parsing offset:", "error", err)
+		slog.Error("error parsing offset", "error", err)
+
 		return models.PaginationParams{}, fmt.Errorf("Invalid offset param")
 	}
 
-	limitStr := query.Get("limit")
-	if limitStr == "" {
-		limitStr = limitDefault
+	limitSTR := query.Get("limit")
+	if limitSTR == "" {
+		limitSTR = limitDefault
 	}
-	limit, err := strconv.Atoi(limitStr)
+
+	limit, err := strconv.Atoi(limitSTR)
 	if err != nil {
-		slog.Error("error parsing limit:", "error", err)
+		slog.Error("error parsing limit", "error", err)
+
 		return models.PaginationParams{}, fmt.Errorf("Invalid limit param")
 	}
 
@@ -151,6 +144,7 @@ func validatePaginationParams(params models.PaginationParams) error {
 	if params.Offset < 0 {
 		return fmt.Errorf("Offset must be a non-negative integer")
 	}
+
 	if params.Limit < minLimit || params.Limit > maxLimit {
 		return fmt.Errorf("Limit must be an integer between %d and %d", minLimit, maxLimit)
 	}
@@ -161,13 +155,14 @@ func validatePaginationParams(params models.PaginationParams) error {
 func getFilterParams(r *http.Request) (models.FilterParams, error) {
 	query := r.URL.Query()
 
-	priceLessThanStr := query.Get("price_less_than")
-	if priceLessThanStr == "" {
-		priceLessThanStr = "0"
+	priceLessThanSTR := query.Get("price_less_than")
+	if priceLessThanSTR == "" {
+		priceLessThanSTR = "0"
 	}
-	priceLessThan, err := strconv.ParseFloat(priceLessThanStr, 64)
+
+	priceLessThan, err := strconv.ParseFloat(priceLessThanSTR, 64)
 	if err != nil {
-		log.Printf("Error parsing price_less_than: %v", err)
+		slog.Error("error parsing price_less_than", "error", err)
 		return models.FilterParams{}, fmt.Errorf("Invalid price_less_than param")
 	}
 
