@@ -3,7 +3,7 @@ package catalog
 import (
 	"context"
 	"fmt"
-	"log/slog"
+	"log"
 	"net/http"
 	"strconv"
 	"strings"
@@ -25,7 +25,7 @@ type CatalogHandler struct {
 	repo ProductsRepository
 }
 
-// ProductsRepository defines the contract for accessing product data.
+// ProductsRepository defines the methods of the products repository.
 type ProductsRepository interface {
 	GetAll(ctx context.Context, filter models.FilterParams, pagination models.PaginationParams) (models.PaginatedResult, error)
 	GetByCode(ctx context.Context, code string) (models.Product, error)
@@ -58,7 +58,7 @@ func (h *CatalogHandler) Get(w http.ResponseWriter, r *http.Request) {
 
 	result, err := h.repo.GetAll(ctx, filterParams, paginationParams)
 	if err != nil {
-		slog.Error("error getting products", "error", err)
+		log.Printf("error getting products: %v", err)
 		api.ErrorResponse(w, http.StatusInternalServerError, "Error getting products")
 
 		return
@@ -89,7 +89,7 @@ func (h *CatalogHandler) GetProductDetail(w http.ResponseWriter, r *http.Request
 			return
 		}
 
-		slog.Error("error getting product with code", "code", code, "error", err)
+		log.Printf("error getting product with code %s: %v", code, err)
 		api.ErrorResponse(w, http.StatusInternalServerError, "Error getting product")
 
 		return
@@ -110,7 +110,7 @@ func getPaginationParams(r *http.Request) (models.PaginationParams, error) {
 
 	offset, err := strconv.Atoi(offsetSTR)
 	if err != nil {
-		slog.Error("error parsing offset", "error", err)
+		log.Printf("error parsing offset: %v", err)
 
 		return models.PaginationParams{}, fmt.Errorf("Invalid offset param")
 	}
@@ -122,7 +122,7 @@ func getPaginationParams(r *http.Request) (models.PaginationParams, error) {
 
 	limit, err := strconv.Atoi(limitSTR)
 	if err != nil {
-		slog.Error("error parsing limit", "error", err)
+		log.Printf("error parsing limit: %v", err)
 
 		return models.PaginationParams{}, fmt.Errorf("Invalid limit param")
 	}
@@ -162,7 +162,7 @@ func getFilterParams(r *http.Request) (models.FilterParams, error) {
 
 	priceLessThan, err := strconv.ParseFloat(priceLessThanSTR, 64)
 	if err != nil {
-		slog.Error("error parsing price_less_than", "error", err)
+		log.Printf("error parsing price_less_than: %v", err)
 		return models.FilterParams{}, fmt.Errorf("Invalid price_less_than param")
 	}
 

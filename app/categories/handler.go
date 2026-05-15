@@ -3,7 +3,8 @@ package categories
 import (
 	"context"
 	"encoding/json"
-	"log/slog"
+	"errors"
+	"log"
 	"net/http"
 
 	"github.com/mytheresa/go-hiring-challenge/app/api"
@@ -16,7 +17,7 @@ type CategoriesHandler struct {
 	repo CategoriesRepository
 }
 
-// CategoriesRepository defines the interface for the categories repository.
+// CategoriesRepository defines the methods of the categories repository.
 type CategoriesRepository interface {
 	GetAll(ctx context.Context) ([]models.Category, error)
 	Create(ctx context.Context, category *models.Category) error
@@ -35,7 +36,7 @@ func (h *CategoriesHandler) GetAll(w http.ResponseWriter, r *http.Request) {
 
 	categories, err := h.repo.GetAll(ctx)
 	if err != nil {
-		slog.Error("error getting categories", "error", err)
+		log.Printf("error getting categories: %v", err)
 		api.ErrorResponse(w, http.StatusInternalServerError, "error getting categories")
 
 		return
@@ -59,7 +60,7 @@ func (h *CategoriesHandler) Create(w http.ResponseWriter, r *http.Request) {
 	var categoryDTO dto.Category
 	err := json.NewDecoder(r.Body).Decode(&categoryDTO)
 	if err != nil {
-		slog.Error("invalid request body", "error", err)
+		log.Printf("invalid request body: %v", err)
 		api.ErrorResponse(w, http.StatusBadRequest, "invalid request body")
 
 		return
@@ -70,9 +71,16 @@ func (h *CategoriesHandler) Create(w http.ResponseWriter, r *http.Request) {
 		Name: categoryDTO.Name,
 	}
 
+	err = validateCategoryFields(&category)
+	if err != nil {
+		api.ErrorResponse(w, http.StatusBadRequest, err.Error())
+
+		return
+	}
+
 	err = h.repo.Create(ctx, &category)
 	if err != nil {
-		slog.Error("error creating category", "error", err)
+		log.Printf("error creating category: %v", err)
 		api.ErrorResponse(w, http.StatusInternalServerError, "error creating category")
 
 		return
@@ -82,4 +90,16 @@ func (h *CategoriesHandler) Create(w http.ResponseWriter, r *http.Request) {
 		Code: category.Code,
 		Name: category.Name,
 	})
+}
+
+func validateCategoryFields(category *models.Category) error {
+	if category.Code == "" {
+		return errors.New("Category code is required")
+	}
+
+	if category.Name == "" {
+		return errors.New("Category name is required")
+	}
+
+	return nil
 }
