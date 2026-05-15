@@ -37,7 +37,7 @@ func (h *CategoriesHandler) GetAll(w http.ResponseWriter, r *http.Request) {
 	categories, err := h.repo.GetAll(ctx)
 	if err != nil {
 		log.Printf("error getting categories: %v", err)
-		api.ErrorResponse(w, http.StatusInternalServerError, "error getting categories")
+		api.ErrorResponse(w, http.StatusInternalServerError, "Error getting categories")
 
 		return
 	}
@@ -61,7 +61,7 @@ func (h *CategoriesHandler) Create(w http.ResponseWriter, r *http.Request) {
 	err := json.NewDecoder(r.Body).Decode(&categoryDTO)
 	if err != nil {
 		log.Printf("invalid request body: %v", err)
-		api.ErrorResponse(w, http.StatusBadRequest, "invalid request body")
+		api.ErrorResponse(w, http.StatusBadRequest, "Invalid request body")
 
 		return
 	}
@@ -81,7 +81,7 @@ func (h *CategoriesHandler) Create(w http.ResponseWriter, r *http.Request) {
 	err = h.repo.Create(ctx, &category)
 	if err != nil {
 		log.Printf("error creating category: %v", err)
-		api.ErrorResponse(w, http.StatusInternalServerError, "error creating category")
+		api.ErrorResponse(w, http.StatusInternalServerError, "Error creating category")
 
 		return
 	}
